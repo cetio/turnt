@@ -3,7 +3,11 @@
 		"cet"
 	],
 	"copyright": "Copyright © 2025, cet",
-	"description": "Music organization and mutagen decoding/encoding library.",
+	"description": "GTK turntable music player.",
 	"license": "AGPL-3.0-only",
-	"name": "sierra"
+	"name": "turnt",
+	"dependencies": {
+		"gid:gtk4": "0.9.8",
+		"gid:gst1": "0.9.8"
+	}
 }

@@ -1,5 +1,7 @@
 {
 	"fileVersion": 1,
 	"versions": {
+		"gid": "0.9.8",
+		"gtk-d": "3.11.0"
 	}
 }

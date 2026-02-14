@@ -1,0 +1,286 @@
+/* Base */
+window, scrolledwindow, viewport, drawingarea {
+    background-color: #141414;
+    color: #b8b8b8;
+}
+
+box, label {
+    background-color: transparent;
+    color: #b8b8b8;
+}
+
+/* Scrollbar */
+scrollbar slider {
+    background-color: #3a3a3a;
+    border-radius: 4px;
+    min-width: 4px;
+}
+
+scrollbar trough {
+    background-color: transparent;
+}
+
+/* Browser Panel */
+.browser-panel {
+    background-color: #141414;
+}
+
+/* Card */
+.card {
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+.card:hover {
+    background-color: #242424;
+    border-color: #333333;
+}
+
+.card-sticky {
+    background-color: #222222;
+    border: 1px solid #555555;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+/* Sticky Header */
+.sticky-header {
+    background-color: #141414;
+    padding: 0;
+}
+
+/* Card Name */
+.card-name {
+    font-weight: 600;
+    color: #e0e0e0;
+    letter-spacing: 0.2px;
+}
+
+.card-name-sticky {
+    font-weight: 700;
+    color: #f0f0f0;
+    letter-spacing: 0.2px;
+}
+
+/* Count Labels */
+.count-label {
+    font-size: 0.85em;
+    color: #666666;
+}
+
+/* Play Count */
+.play-count-label {
+    font-size: 0.75em;
+    color: #ffffff;
+    opacity: 0.7;
+}
+
+/* Track Labels */
+.track-num {
+    font-size: 0.85em;
+    color: #555555;
+    min-width: 28px;
+}
+
+.track-name {
+    font-weight: 400;
+    color: #a0a0a0;
+}
+
+/* Top Bar */
+.top-bar {
+    background-color: #141414;
+    padding: 0;
+}
+
+/* Top Bar Search */
+.top-search {
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    color: #b8b8b8;
+    padding: 4px 8px;
+    min-height: 28px;
+}
+
+/* Top Bar Buttons — styled like search bar */
+.top-btn {
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 4px 6px;
+    min-width: 28px;
+    min-height: 28px;
+    color: #555555;
+}
+
+.top-btn:hover {
+    background-color: #242424;
+    border-color: #333333;
+    color: #888888;
+}
+
+.top-btn:checked {
+    background-color: #0a0a0a;
+    border-color: #2a2a2a;
+    color: #666666;
+}
+
+.top-btn:active {
+    background-color: #0a0a0a;
+}
+
+/* Play/Pause Button */
+.play-pause-btn {
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 25px;
+    color: #888888;
+}
+
+.play-pause-btn:hover {
+    background-color: #242424;
+    border-color: #333333;
+    color: #b8b8b8;
+}
+
+.play-pause-btn:checked {
+    background-color: #0a0a0a;
+    border-color: #2a2a2a;
+    color: #666666;
+}
+
+.play-pause-btn:active {
+    background-color: #0a0a0a;
+}
+
+/* Add Artist Button */
+.add-artist-btn {
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    color: #888888;
+}
+
+.add-artist-btn:hover {
+    background-color: #242424;
+    border-color: #333333;
+    color: #b8b8b8;
+}
+
+.add-icon {
+    font-size: 32px;
+    font-weight: 300;
+}
+
+.add-artist-entry {
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    color: #b8b8b8;
+    padding: 4px 8px;
+    min-height: 28px;
+}
+
+.card-separator {
+    background-color: #2a2a2a;
+    min-width: 1px;
+}
+
+popover {
+    background-color: transparent;
+}
+
+popover > contents {
+    background-color: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    color: #b8b8b8;
+    padding: 0;
+}
+
+popover > contents > arrow {
+    background-color: transparent;
+    border: none;
+    min-width: 0;
+    min-height: 0;
+}
+
+popover arrow {
+    -gtk-icon-source: none;
+}
+
+popover button.flat {
+    color: #b8b8b8;
+    padding: 4px 12px;
+}
+
+popover button.flat:hover {
+    background-color: #2a2a2a;
+}
+
+paned > separator,
+paned separator {
+    background-color: transparent;
+    background-image: none;
+    min-width: 0;
+    min-height: 0;
+    border: none;
+    border-width: 0;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+}
+
+paned {
+    border: none;
+    border-width: 0;
+    box-shadow: none;
+}
+
+paned > separator {
+    opacity: 0;
+}
+
+.no-separator > separator {
+    min-width: 0;
+    background: none;
+    background-color: transparent;
+    border: none;
+    opacity: 0;
+}
+
+/* Drop Hint */
+.drop-hint {
+    color: #555555;
+    font-size: 0.9em;
+    padding: 24px 0;
+}
+
+/* Color Palette Strip */
+.color-strip {
+    background-color: transparent;
+    padding: 2px 0;
+}
+
+.color-btn {
+    border-radius: 50%;
+    min-width: 18px;
+    min-height: 18px;
+    padding: 0;
+    border: 1px solid #3a3a3a;
+    background-color: #3a3a3a;
+}
+
+.color-btn:hover {
+    border-color: #666666;
+}
+
+.color-btn:nth-child(1) { background-color: #596073; }
+.color-btn:nth-child(2) { background-color: #8c4040; }
+.color-btn:nth-child(3) { background-color: #40734d; }
+.color-btn:nth-child(4) { background-color: #806633; }
+.color-btn:nth-child(5) { background-color: #4d4d80; }
+.color-btn:nth-child(6) { background-color: #734066; }

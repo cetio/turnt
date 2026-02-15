@@ -13,7 +13,7 @@ import gtk.types : Align, Orientation, Overflow;
 import gtk.widget : Widget;
 import pango.types : EllipsizeMode;
 
-import mutagen.parser.scanner : collectAudio;
+import mutagen.catalogue : collectAudio;
 import turnt.vinyl : Vinyl;
 
 class CardWidget : Box

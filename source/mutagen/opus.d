@@ -1,94 +1,8 @@
 module mutagen.opus;
 
-import std.conv : to;
-import std.stdio : writeln, File, SEEK_CUR, SEEK_SET;
-import std.string : toLower, toUpper, split;
-
-string[string] readOpusTags(string path)
-{
-    string[string] tags;
-    try
-    {
-        File f = File(path, "rb");
-        // Skip OggS pages to find OpusTags or vorbis comment header
-        ubyte[4] magic;
-        long fileSize = f.size();
-
-        while (f.tell() + 27 < fileSize)
-        {
-            magic = f.rawRead(new ubyte[4]);
-            if (magic != cast(ubyte[])("OggS"))
-            {
-                f.seek(-3, SEEK_CUR);
-                continue;
-            }
-
-            // Skip rest of Ogg page header
-            f.seek(22, SEEK_CUR); // version, type, granule, serial, seq, crc
-            ubyte[1] nSegs;
-            nSegs = f.rawRead(new ubyte[1]);
-            ubyte[] segTable = f.rawRead(new ubyte[nSegs[0]]);
-
-            uint pageDataSize = 0;
-            foreach (s; segTable)
-                pageDataSize += s;
-
-            long pageDataStart = f.tell();
-            if (pageDataSize < 8)
-            {
-                f.seek(pageDataSize, SEEK_CUR);
-                continue;
-            }
-
-            ubyte[8] sig;
-            sig = f.rawRead(new ubyte[8]);
-
-            bool isOpusTags = (sig[0..8] == cast(ubyte[])("OpusTags"));
-            bool isVorbis = (sig[0..7] == cast(ubyte[])("\x03vorbis"));
-
-            if (!isOpusTags && !isVorbis)
-            {
-                f.seek(pageDataStart + pageDataSize, SEEK_SET);
-                continue;
-            }
-
-            if (isVorbis)
-                f.seek(pageDataStart + 7, SEEK_SET);
-
-            // Read vendor
-            ubyte[4] lenBuf;
-            lenBuf = f.rawRead(new ubyte[4]);
-            uint vendorLen = readLE32(lenBuf);
-            if (vendorLen > 0 && f.tell() + vendorLen < fileSize)
-                f.seek(vendorLen, SEEK_CUR);
-
-            // Read comment count
-            lenBuf = f.rawRead(new ubyte[4]);
-            uint commentCount = readLE32(lenBuf);
-
-            foreach (i; 0..commentCount)
-            {
-                if (f.tell() + 4 >= fileSize)
-                    break;
-                lenBuf = f.rawRead(new ubyte[4]);
-                uint cLen = readLE32(lenBuf);
-                if (cLen == 0 || f.tell() + cLen > fileSize)
-                    break;
-                string comment = cast(string)f.rawRead(new char[cLen]);
-                string[] parts = comment.split('=');
-                if (parts.length > 1)
-                    tags[parts[0].toUpper()] = parts[1];
-            }
-
-            f.close();
-            return tags;
-        }
-        f.close();
-    }
-    catch (Exception e)
-        writeln("[opus] Error reading tags: "~e.msg);
-    return tags;
-}
+import std.base64 : Base64;
+import std.stdio : File, SEEK_CUR, SEEK_SET;
+import std.string : split, toUpper;
 
 private uint readLE32(ubyte[4] data)
 {
@@ -96,4 +10,170 @@ private uint readLE32(ubyte[4] data)
         | (cast(uint)data[1] << 8)
         | (cast(uint)data[2] << 16)
         | (cast(uint)data[3] << 24);
+}
+
+private uint readBe32(ubyte[] data, ref size_t pos)
+{
+    if (pos + 4 > data.length)
+        return 0;
+    uint ret = (cast(uint)data[pos + 0] << 24)
+        | (cast(uint)data[pos + 1] << 16)
+        | (cast(uint)data[pos + 2] << 8)
+        | cast(uint)data[pos + 3];
+    pos += 4;
+    return ret;
+}
+
+struct Comment
+{
+    string vendor;
+    string[string] tags;
+
+    this(File file)
+    {
+        ubyte[4] lenBuf = file.rawRead(new ubyte[4]);
+        uint vendorLen = readLE32(lenBuf);
+        if (vendorLen > 0)
+            vendor = cast(string)file.rawRead(new char[](vendorLen));
+
+        lenBuf = file.rawRead(new ubyte[4]);
+        uint commentCount = readLE32(lenBuf);
+
+        foreach (i; 0..commentCount)
+        {
+            lenBuf = file.rawRead(new ubyte[4]);
+            uint cLen = readLE32(lenBuf);
+            if (cLen == 0)
+                continue;
+            string comment = cast(string)file.rawRead(new char[](cLen));
+            string[] parts = comment.split('=');
+            if (parts.length > 1)
+                tags[parts[0].toUpper()] = parts[1];
+        }
+    }
+}
+
+final class Opus
+{
+public:
+    string path;
+    File file;
+    Comment comment;
+    string[string] tags;
+    ubyte[] image;
+
+    this(string path)
+    {
+        this.path = path;
+        parse();
+    }
+
+private:
+    void parse()
+    {
+        try
+        {
+            file = File(path, "rb");
+            long fileSize = file.size();
+
+            while (file.tell() + 27 < fileSize)
+            {
+                ubyte[4] magic = file.rawRead(new ubyte[4]);
+                if (magic != cast(ubyte[])("OggS"))
+                {
+                    file.seek(-3, SEEK_CUR);
+                    continue;
+                }
+
+                file.seek(22, SEEK_CUR);
+                ubyte[1] segmentCount = file.rawRead(new ubyte[1]);
+                ubyte[] segments = file.rawRead(new ubyte[](segmentCount[0]));
+
+                uint pageDataSize = 0;
+                foreach (s; segments)
+                    pageDataSize += s;
+
+                long pageDataStart = file.tell();
+                if (pageDataSize < 8)
+                {
+                    file.seek(pageDataSize, SEEK_CUR);
+                    continue;
+                }
+
+                ubyte[8] sig = file.rawRead(new ubyte[8]);
+                bool isOpusTags = sig[0..8] == cast(ubyte[])("OpusTags");
+                bool isVorbis = sig[0..7] == cast(ubyte[])("\x03vorbis");
+
+                if (!isOpusTags && !isVorbis)
+                {
+                    file.seek(pageDataStart + pageDataSize, SEEK_SET);
+                    continue;
+                }
+
+                if (isVorbis)
+                    file.seek(pageDataStart + 7, SEEK_SET);
+
+                comment = Comment(file);
+                tags = comment.tags;
+                if (string* picture = "METADATA_BLOCK_PICTURE" in tags)
+                    image = decodePicture(*picture);
+
+                file.close();
+                return;
+            }
+
+            file.close();
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    ubyte[] decodePicture(string encoded)
+    {
+        ubyte[] ret;
+        ubyte[] raw;
+        try
+        {
+            raw = Base64.decode(encoded);
+        }
+        catch (Exception)
+        {
+            return ret;
+        }
+
+        if (raw.length < 32)
+            return ret;
+
+        size_t p = 0;
+        uint ignored = readBe32(raw, p);
+
+        uint mimeLen = readBe32(raw, p);
+        if (p + mimeLen > raw.length)
+            return ret;
+        p += mimeLen;
+
+        uint descLen = readBe32(raw, p);
+        if (p + descLen > raw.length)
+            return ret;
+        p += descLen;
+
+        ignored = readBe32(raw, p);
+        ignored = readBe32(raw, p);
+        ignored = readBe32(raw, p);
+        ignored = readBe32(raw, p);
+
+        uint imageLen = readBe32(raw, p);
+        if (p + imageLen > raw.length)
+            return ret;
+
+        ret = raw[p..p + imageLen].dup;
+        return ret;
+    }
+}
+
+string[string] readOpusTags(string path)
+{
+    Opus opus = new Opus(path);
+    return opus.tags;
 }

@@ -1,7 +1,6 @@
 module turnt.catalogue.view;
 
 import std.algorithm : sort, reverse;
-import std.file : SpanMode;
 import std.string : indexOf, toLower;
 
 import gtk.adjustment;
@@ -14,10 +13,7 @@ import turnt.catalogue.browse;
 import turnt.playlist : PlaylistState;
 import turnt.vinyl : Vinyl;
 
-import mutagen.parser.config : ParserConfig;
-import mutagen.parser.scanner : ArtistInfo, AlbumInfo, TrackInfo, scanLibrary,
-    collectAudio, albumNames, albumDirs;
-import mutagen.parser.cache : saveLibrary, loadLibrary;
+import mutagen.catalogue : Artist, collectAll, musicDir;
 
 enum BrowseView
 {
@@ -37,8 +33,8 @@ class CatalogueView : Box
 {
 public:
     BrowseView currentView = BrowseView.Artists;
-    ArtistInfo[] artistCache;
-    ArtistInfo[] filteredCache;
+    Artist[] artistCache;
+    Artist[] filteredCache;
     enum cardWidth = 372;
 
     ScrolledWindow scrolled;
@@ -190,12 +186,19 @@ public:
         adj.value = target;
     }
 
-    Vinyl getOrCreateArtistVinyl(ref ArtistInfo ai)
+    Vinyl getOrCreateArtistVinyl(Artist ai)
     {
         if (ai.name in artistVinyls)
             return artistVinyls[ai.name];
-        string[] albNames = albumNames(&ai);
-        string[] albDirs = albumDirs(&ai);
+
+        string[] albNames;
+        string[] albDirs;
+        foreach (alb; ai.albums)
+        {
+            albNames ~= alb.name;
+            albDirs ~= alb.dir;
+        }
+
         Vinyl v = new Vinyl(ai.name, ai.coverDir, 58);
         v.artist = ai.name;
         v.albums = albNames;
@@ -205,14 +208,12 @@ public:
         return v;
     }
 
-    Vinyl getOrCreateAlbumVinyl(string artist, string album, string albumDir, int trackCount = -1)
+    Vinyl getOrCreateAlbumVinyl(string artist, string album, string albumDir, int trackCount)
     {
         string key = artist~"|"~album;
         if (Vinyl* p = key in albumVinyls)
             return *p;
         Vinyl v = new Vinyl(album, albumDir, 50, artist, album);
-        if (trackCount < 0)
-            trackCount = cast(int)collectAudio(albumDir, SpanMode.shallow).length;
         v.trackNum = trackCount;
         albumVinyls[key] = v;
         return v;
@@ -229,12 +230,12 @@ public:
         return v;
     }
 
-    ArtistInfo* findArtist(string name)
+    Artist findArtist(string name)
     {
-        foreach (ref ai; artistCache)
+        foreach (ai; artistCache)
         {
             if (ai.name == name)
-                return &ai;
+                return ai;
         }
         return null;
     }
@@ -258,19 +259,13 @@ public:
         if (sortMode == SortMode.ZA)
             filteredCache.reverse();
         else if (sortMode == SortMode.Plays)
-            filteredCache.sort!((a, b) => a.playCount > b.playCount);
+            filteredCache.sort!((a, b) => a.getPlayCount() > b.getPlayCount());
     }
 
 private:
     void loadLibraryCache()
     {
-        ParserConfig cfg;
-        artistCache = loadLibrary(cfg);
-        if (artistCache.length == 0)
-        {
-            artistCache = scanLibrary(cfg);
-            saveLibrary(cfg, artistCache);
-        }
+        artistCache = collectAll(musicDir).artists.dup;
     }
 }
 

@@ -1,19 +1,187 @@
 module mutagen.mp3;
 
 import std.conv : to;
-import std.stdio : writeln, File, SEEK_CUR, SEEK_SET;
-import std.string : toLower, indexOf;
+import std.stdio : File, SEEK_CUR, SEEK_SET;
+import std.string : toLower, toUpper;
+
+struct Frame
+{
+    string id;
+    uint size;
+    ubyte[] data;
+
+    this(File file, ubyte ver, out bool valid)
+    {
+        valid = false;
+        if (file.tell() + 10 > file.size())
+            return;
+
+        ubyte[10] frameHeader = file.rawRead(new ubyte[10]);
+        if (frameHeader[0] == 0)
+            return;
+
+        id = cast(string)frameHeader[0..4];
+        if (ver == 4)
+            size = syncsafeToInt(frameHeader[4..8]);
+        else
+            size = (cast(uint)frameHeader[4] << 24)
+                | (cast(uint)frameHeader[5] << 16)
+                | (cast(uint)frameHeader[6] << 8)
+                | cast(uint)frameHeader[7];
+
+        if (size == 0 || file.tell() + size > file.size())
+            return;
+
+        data = file.rawRead(new ubyte[](size));
+        valid = true;
+    }
+}
+
+class MP3
+{
+public:
+    File file;
+    Frame[] frames;
+    string[string] tags;
+    ubyte[] image;
+
+    this(File file)
+    {
+        this.file = file;
+
+        if (file.size() < 10)
+        {
+            this.file.close();
+            return;
+        }
+
+        ubyte[10] header = file.rawRead(new ubyte[10]);
+        if (header[0..3] != cast(ubyte[])("ID3"))
+        {
+            this.file.close();
+            return;
+        }
+
+        uint tagSize = syncsafeToInt(header[6..10]);
+        ubyte ver = header[3];
+        long end = 10 + cast(long)tagSize;
+
+        while (file.tell() + 10 <= end && file.tell() + 10 <= file.size())
+        {
+            bool valid;
+            Frame frame = Frame(file, ver, valid);
+            if (!valid)
+                break;
+            frames ~= frame;
+        }
+
+        foreach (ref frame; frames)
+        {
+            if (frame.id == "TXXX")
+            {
+                string desc;
+                string value;
+                parseTxxx(frame.data, desc, value);
+                if (desc.length > 0)
+                    tags[desc.toUpper()] = value;
+            }
+            else if (frame.id == "PCNT")
+            {
+                tags["PLAY_COUNT"] = parsePopCount(frame.data).to!string;
+            }
+            else if (frame.id == "TIT2")
+            {
+                tags["TITLE"] = parseTextFrame(frame.data);
+            }
+            else if (frame.id == "TPE1")
+            {
+                tags["ARTIST"] = parseTextFrame(frame.data);
+            }
+            else if (frame.id == "TALB")
+            {
+                tags["ALBUM"] = parseTextFrame(frame.data);
+            }
+            else if (frame.id == "TRCK")
+            {
+                tags["TRACKNUMBER"] = parseTextFrame(frame.data);
+            }
+            else if (frame.id == "APIC" && image.length == 0)
+            {
+                image = parseApic(frame.data);
+            }
+        }
+
+        this.file.close();
+    }
+
+    int getPlayCount()
+    {
+        if (string* value = "PLAY_COUNT" in tags)
+            return value.to!int;
+        return 0;
+    }
+}
+
+private string parseTextFrame(ubyte[] data)
+{
+    if (data.length < 2)
+        return "";
+
+    ubyte encoding = data[0];
+    if (encoding == 0 || encoding == 3)
+        return cast(string)data[1..$];
+
+    string ret;
+    foreach (i; 1..data.length)
+    {
+        if (data[i] != 0)
+            ret ~= cast(char)data[i];
+    }
+    return ret;
+}
+
+private ubyte[] parseApic(ubyte[] data)
+{
+    ubyte[] ret;
+    if (data.length < 4)
+        return ret;
+
+    size_t p = 1;
+    while (p < data.length && data[p] != 0)
+        p++;
+    if (p >= data.length)
+        return ret;
+    p++;
+
+    if (p >= data.length)
+        return ret;
+    p++;
+
+    while (p < data.length && data[p] != 0)
+        p++;
+    if (p < data.length)
+        p++;
+
+    if (p < data.length)
+        ret = data[p..$].dup;
+    return ret;
+}
 
 int readId3PlayCount(string path)
 {
     try
     {
-        File f = File(path, "rb");
-        ubyte[10] header;
-        header = f.rawRead(new ubyte[10]);
+        MP3 mp3 = new MP3(File(path, "rb"));
+        if ("PLAY_COUNT" in mp3.tags)
+            return mp3.tags["PLAY_COUNT"].to!int;
 
+        File f = File(path, "rb");
+        ubyte[10] header = f.rawRead(new ubyte[10]);
         if (header[0..3] != cast(ubyte[])("ID3"))
+        {
+            f.close();
             return readId3v1PlayCount(path);
+        }
 
         uint tagSize = syncsafeToInt(header[6..10]);
         size_t end = 10 + tagSize;
@@ -58,8 +226,9 @@ int readId3PlayCount(string path)
         }
         f.close();
     }
-    catch (Exception e)
-        writeln("[mp3] Error reading ID3: "~e.msg);
+    catch (Exception)
+    {
+    }
     return 0;
 }
 
@@ -76,7 +245,6 @@ void writeId3PlayCount(string path, int count)
         ubyte[] tag = buildId3Tag(count);
         ubyte[] result = tag ~ data;
         write(path, result);
-        writeln("[playcount] Wrote MP3 play count (new tag): "~count.to!string);
         return;
     }
 
@@ -122,7 +290,6 @@ void writeId3PlayCount(string path, int count)
                 uint newTagSize = cast(uint)(cast(long)result.length - 10 - (cast(long)data.length - cast(long)end));
                 intToSyncsafe(newTagSize, result[6..10]);
                 write(path, result);
-                writeln("[playcount] Wrote MP3 play count: "~count.to!string);
                 return;
             }
         }
@@ -139,7 +306,6 @@ void writeId3PlayCount(string path, int count)
     uint newTagSize = cast(uint)(tagSize + newFrame.length);
     intToSyncsafe(newTagSize, result[6..10]);
     write(path, result);
-    writeln("[playcount] Wrote MP3 play count (inserted): "~count.to!string);
 }
 
 private void parseTxxx(ubyte[] data, out string desc, out string val)

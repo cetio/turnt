@@ -1,7 +1,6 @@
 module turnt.catalogue.browse;
 
 import std.conv : to;
-import std.file : SpanMode;
 import std.path : buildPath;
 import std.string : indexOf, toUpper;
 
@@ -18,8 +17,7 @@ import turnt.playlist;
 import turnt.vinyl : Vinyl, drawVinylFolder;
 import turnt.window;
 
-import mutagen.parser.scanner : ArtistInfo, AlbumInfo, TrackInfo,
-    collectAudio, albumNames, albumDirs, musicDir;
+import mutagen.catalogue : Artist, Album, Track, musicDir;
 
 void showArtists(CatalogueView cv)
 {
@@ -64,10 +62,10 @@ void showArtists(CatalogueView cv)
         cast(int)((cv.filteredCache.length + extra) * 82));
 
     cv.lazyMakeCard = (int idx) {
-        ArtistInfo* ai = &cv.filteredCache[idx];
-        Vinyl v = cv.getOrCreateArtistVinyl(*ai);
+        Artist ai = cv.filteredCache[idx];
+        Vinyl v = cv.getOrCreateArtistVinyl(ai);
         string detail = ai.albums.length.to!string~" album"~(ai.albums.length != 1 ? "s" : "");
-        CardWidget card = new CardWidget(v, v.name.toUpper(), detail, ai.playCount);
+        CardWidget card = new CardWidget(v, v.name.toUpper(), detail, ai.getPlayCount());
         card.attachSplay(cv.cardWidth);
 
         GestureClick click = new GestureClick();
@@ -91,25 +89,25 @@ void showAlbums(CatalogueView cv, string artist)
     cv.stickyAlbum = "";
     clearBox(cv.contentBox);
 
-    ArtistInfo* ai = cv.findArtist(artist);
+    Artist ai = cv.findArtist(artist);
     if (ai is null)
         return;
 
-    Vinyl av = cv.getOrCreateArtistVinyl(*ai);
+    Vinyl av = cv.getOrCreateArtistVinyl(ai);
     string aDetail = ai.albums.length.to!string~" album"~(ai.albums.length != 1 ? "s" : "");
-    CardWidget sticky = new CardWidget(av, av.name.toUpper(), aDetail, ai.playCount);
+    CardWidget sticky = new CardWidget(av, av.name.toUpper(), aDetail, ai.getPlayCount());
     makeStickyCard(sticky, &cv.showArtists);
     cv.contentBox.append(sticky);
 
-    AlbumInfo[] albums = ai.albums;
+    Album[] albums = ai.albums;
     cv.setupLazy(cast(int)albums.length, 74, cast(int)(albums.length * 74));
 
     cv.lazyMakeCard = (int idx) {
-        AlbumInfo* alb = &albums[idx];
+        Album alb = albums[idx];
         int tc = cast(int)alb.tracks.length;
         Vinyl v = cv.getOrCreateAlbumVinyl(artist, alb.name, alb.dir, tc);
         string detail = tc.to!string~" track"~(tc != 1 ? "s" : "");
-        CardWidget card = new CardWidget(v, v.name.toUpper(), detail, alb.playCount);
+        CardWidget card = new CardWidget(v, v.name.toUpper(), detail, alb.getPlayCount());
         card.attachSplay(cv.cardWidth);
 
         GestureClick click = new GestureClick();
@@ -132,30 +130,30 @@ void showTracks(CatalogueView cv, string artist, string album)
     cv.stickyAlbum = album;
     clearBox(cv.contentBox);
 
-    ArtistInfo* ai = cv.findArtist(artist);
+    Artist ai = cv.findArtist(artist);
     if (ai is null)
         return;
 
     // Artist sticky
-    Vinyl av = cv.getOrCreateArtistVinyl(*ai);
+    Vinyl av = cv.getOrCreateArtistVinyl(ai);
     string aDetail = ai.albums.length.to!string~" album"~(ai.albums.length != 1 ? "s" : "");
-    CardWidget artistCard = new CardWidget(av, av.name.toUpper(), aDetail, ai.playCount);
+    CardWidget artistCard = new CardWidget(av, av.name.toUpper(), aDetail, ai.getPlayCount());
     makeStickyCard(artistCard, delegate void() { cv.showAlbums(artist); });
     cv.contentBox.append(artistCard);
 
     // Find album
-    AlbumInfo* albInfo;
-    foreach (ref alb; ai.albums)
+    Album albInfo;
+    foreach (alb; ai.albums)
     {
         if (alb.name == album)
         {
-            albInfo = &alb;
+            albInfo = alb;
             break;
         }
     }
     string albumDir = albInfo !is null ? albInfo.dir : buildPath(ai.dir, album);
     int tc = albInfo !is null ? cast(int)albInfo.tracks.length : 0;
-    int albumPlays = albInfo !is null ? albInfo.playCount : 0;
+    int albumPlays = albInfo !is null ? albInfo.getPlayCount() : 0;
 
     // Album sticky
     Vinyl albumV = cv.getOrCreateAlbumVinyl(artist, album, albumDir, tc);
@@ -165,22 +163,22 @@ void showTracks(CatalogueView cv, string artist, string album)
     cv.contentBox.append(albumCard);
 
     // Tracks
-    TrackInfo[] trackInfos = albInfo !is null ? albInfo.tracks : [];
+    Track[] trackInfos = albInfo !is null ? albInfo.tracks : [];
     cv.setupLazy(cast(int)trackInfos.length, 56, cast(int)(trackInfos.length * 56));
 
     cv.lazyMakeCard = (int idx) {
-        TrackInfo* ti = &trackInfos[idx];
-        Vinyl v = cv.getOrCreateTrackVinyl(artist, album, albumDir, ti.name, ti.path);
+        Track ti = trackInfos[idx];
+        Vinyl v = cv.getOrCreateTrackVinyl(artist, album, albumDir, ti.name, ti.file);
         v.trackNum = ti.trackNum;
         string title = ti.trackNum.to!string~". "~ti.name.toUpper();
-        CardWidget card = new CardWidget(v, title, "", ti.playCount, 1, 1, "track-name");
+        CardWidget card = new CardWidget(v, title, "", ti.getPlayCount(), 1, 1, "track-name");
 
         GestureClick click = new GestureClick();
         click.connectReleased(((vi, t, ar, al) => delegate(int, double, double) {
             if (cv.dragged)
                 return;
             window.turntable.loadTrack(vi, ar, al, t);
-        })(v, ti.path, artist, album));
+        })(v, ti.file, artist, album));
         card.overlay.addController(click);
         cv.contentBox.append(card);
     };
@@ -255,8 +253,8 @@ void showPlaylist(CatalogueView cv, int idx)
         {
             artist = entry;
             displayName = entry;
-            ArtistInfo* ai = cv.findArtist(entry);
-            coverDir = ai !is null ? ai.coverDir : "";
+            Artist ai = cv.findArtist(entry);
+            coverDir = ai is null ? "" : ai.coverDir;
         }
         else
         {

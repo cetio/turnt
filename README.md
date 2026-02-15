@@ -1,4 +1,3 @@
-
 # Turnt
 
 Turnt is a GTK music player built around a vinyl record centric design.

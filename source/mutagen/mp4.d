@@ -1,126 +1,182 @@
 module mutagen.mp4;
 
 import std.conv : to;
-import std.stdio : writeln, File, SEEK_CUR, SEEK_SET;
-import std.string : toLower;
+import std.process : execute, ProcessResult;
+import std.stdio : File, SEEK_SET;
+import std.string : toUpper;
 
-string readMp4Tag(string path, string tagName)
+struct Atom
 {
-    try
-    {
-        File f = File(path, "rb");
-        long fileSize = f.size();
+    string type;
+    uint size;
+    long dataStart;
+    ubyte[] data;
+}
 
-        while (f.tell() + 8 <= fileSize)
+final class MP4
+{
+public:
+    string path;
+    File file;
+    Atom[] atoms;
+    string[string] tags;
+    ubyte[] image;
+
+    this(string path)
+    {
+        this.path = path;
+        parse();
+    }
+
+private:
+    void parse()
+    {
+        try
         {
-            ubyte[8] atomHeader;
-            atomHeader = f.rawRead(new ubyte[8]);
-            uint atomSize = (cast(uint)atomHeader[0] << 24)
-                | (cast(uint)atomHeader[1] << 16)
-                | (cast(uint)atomHeader[2] << 8)
-                | cast(uint)atomHeader[3];
-            string atomType = cast(string)atomHeader[4..8];
+            file = File(path, "rb");
+            parseRange(0, file.size());
+            file.close();
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    void parseRange(long start, long end)
+    {
+        file.seek(start, SEEK_SET);
+        while (file.tell() + 8 <= end && file.tell() + 8 <= file.size())
+        {
+            long atomStart = file.tell();
+            ubyte[8] header = file.rawRead(new ubyte[8]);
+            uint atomSize = (cast(uint)header[0] << 24)
+                | (cast(uint)header[1] << 16)
+                | (cast(uint)header[2] << 8)
+                | cast(uint)header[3];
+            string atomType = cast(string)header[4..8];
 
             if (atomSize < 8)
                 break;
 
-            if (atomType == "moov" || atomType == "udta" || atomType == "meta"
-                || atomType == "ilst")
+            long atomEnd = atomStart + atomSize;
+            if (atomEnd > end || atomEnd > file.size())
+                break;
+
+            bool container = atomType == "moov" || atomType == "udta"
+                || atomType == "meta" || atomType == "ilst"
+                || atomType == "trak" || atomType == "mdia"
+                || atomType == "minf" || atomType == "stbl";
+
+            if (container)
             {
+                long payloadStart = atomStart + 8;
                 if (atomType == "meta")
-                    f.seek(4, SEEK_CUR); // skip version/flags
-                continue; // descend into container
+                    payloadStart += 4;
+                if (payloadStart < atomEnd)
+                    parseRange(payloadStart, atomEnd);
+                file.seek(atomEnd, SEEK_SET);
+                continue;
             }
 
+            Atom atom;
+            atom.type = atomType;
+            atom.size = atomSize;
+            atom.dataStart = atomStart + 8;
+            uint payloadSize = atomSize - 8;
+            if (payloadSize > 0)
+                atom.data = file.rawRead(new ubyte[](payloadSize));
+            atoms ~= atom;
+
             if (atomType == "----")
-            {
-                string result = parseFreeformAtom(f, atomSize - 8, tagName);
-                if (result.length > 0)
-                {
-                    f.close();
-                    return result;
-                }
-            }
-            else
-            {
-                long skip = atomSize - 8;
-                if (skip > 0 && f.tell() + skip <= fileSize)
-                    f.seek(skip, SEEK_CUR);
-                else
-                    break;
-            }
+                parseFreeform(atom);
+            else if (atomType == "covr" && image.length == 0)
+                image = parseCover(atom);
+
+            file.seek(atomEnd, SEEK_SET);
         }
-        f.close();
     }
-    catch (Exception e)
-        writeln("[mp4] Error reading tag: "~e.msg);
+
+    void parseFreeform(ref Atom atom)
+    {
+        size_t pos = 0;
+        string name;
+        string value;
+
+        while (pos + 8 <= atom.data.length)
+        {
+            uint subSize = (cast(uint)atom.data[pos + 0] << 24)
+                | (cast(uint)atom.data[pos + 1] << 16)
+                | (cast(uint)atom.data[pos + 2] << 8)
+                | cast(uint)atom.data[pos + 3];
+            if (subSize < 8 || pos + subSize > atom.data.length)
+                break;
+
+            string subType = cast(string)atom.data[pos + 4..pos + 8];
+            ubyte[] payload = atom.data[pos + 8..pos + subSize];
+
+            if (subType == "name" && payload.length > 4)
+                name = cast(string)payload[4..$];
+            else if (subType == "data" && payload.length > 8)
+                value = cast(string)payload[8..$];
+
+            pos += subSize;
+        }
+
+        if (name.length > 0)
+            tags[name.toUpper()] = value;
+    }
+
+    ubyte[] parseCover(ref Atom atom)
+    {
+        ubyte[] ret;
+        size_t pos = 0;
+        while (pos + 8 <= atom.data.length)
+        {
+            uint subSize = (cast(uint)atom.data[pos + 0] << 24)
+                | (cast(uint)atom.data[pos + 1] << 16)
+                | (cast(uint)atom.data[pos + 2] << 8)
+                | cast(uint)atom.data[pos + 3];
+            if (subSize < 8 || pos + subSize > atom.data.length)
+                break;
+
+            string subType = cast(string)atom.data[pos + 4..pos + 8];
+            if (subType == "data" && subSize > 16)
+            {
+                ret = atom.data[pos + 16..pos + subSize].dup;
+                break;
+            }
+            pos += subSize;
+        }
+        return ret;
+    }
+}
+
+string readMp4Tag(string path, string tagName)
+{
+    MP4 mp4 = new MP4(path);
+    string key = tagName.toUpper();
+    if (string* value = key in mp4.tags)
+        return *value;
     return "";
 }
 
 void writeMp4Tag(string path, string tagName, string value)
 {
-    // Use subprocess for reliable MP4 tag writing
-    import std.process : execute;
-    // AtomicParsley or ffmpeg approach
-    auto r = execute(["AtomicParsley", path, "--overWrite",
-        "--freeform", "PLAY_COUNT", "--text", value]);
-    if (r.status != 0)
+    ProcessResult result = execute(["AtomicParsley", path, "--overWrite",
+        "--freeform", tagName, "--text", value]);
+    if (result.status != 0)
     {
-        // Fallback: try python3 mutagen
-        auto r2 = execute(["python3", "-c",
-            "import mutagen.mp4; f=mutagen.mp4.MP4('"~path~"');"
-            ~"f['----:com.apple.iTunes:"~tagName~"']="
-            ~"[mutagen.mp4.MP4FreeForm(b'"~value~"')]; f.save()"]);
-        if (r2.status != 0)
-            writeln("[playcount] MP4 write failed for "~path);
-        else
-            writeln("[playcount] Wrote MP4 play count via mutagen: "~value);
+        ProcessResult fallback = execute([
+            "python3", "-c",
+            "import mutagen.mp4,sys;"
+                ~"f=mutagen.mp4.MP4(sys.argv[1]);"
+                ~"f['----:com.apple.iTunes:'+sys.argv[2]]="
+                ~"[mutagen.mp4.MP4FreeForm(sys.argv[3].encode())];"
+                ~"f.save()",
+            path, tagName, value
+        ]);
+        if (fallback.status != 0)
+        {
+        }
     }
-    else
-        writeln("[playcount] Wrote MP4 play count: "~value);
-}
-
-private string parseFreeformAtom(File f, long remaining, string tagName)
-{
-    long start = f.tell();
-    string mean_, name_, data_;
-
-    while (f.tell() - start < remaining)
-    {
-        if (f.tell() + 8 > f.size())
-            break;
-
-        ubyte[8] subHeader;
-        subHeader = f.rawRead(new ubyte[8]);
-        uint subSize = (cast(uint)subHeader[0] << 24)
-            | (cast(uint)subHeader[1] << 16)
-            | (cast(uint)subHeader[2] << 8)
-            | cast(uint)subHeader[3];
-        string subType = cast(string)subHeader[4..8];
-
-        if (subSize < 8)
-            break;
-
-        uint payloadSize = subSize - 8;
-        if (payloadSize == 0)
-            continue;
-
-        ubyte[] payload = f.rawRead(new ubyte[payloadSize]);
-
-        if (subType == "mean" && payload.length > 4)
-            mean_ = cast(string)payload[4..$];
-        else if (subType == "name" && payload.length > 4)
-            name_ = cast(string)payload[4..$];
-        else if (subType == "data" && payload.length > 8)
-            data_ = cast(string)payload[8..$];
-    }
-
-    // Seek to end of atom
-    long endPos = start + remaining;
-    if (endPos <= f.size())
-        f.seek(endPos, SEEK_SET);
-
-    if (name_.toLower() == tagName.toLower())
-        return data_;
-    return "";
 }

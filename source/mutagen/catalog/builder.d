@@ -39,8 +39,15 @@ Catalog collectAll(string dir)
         string albumDir = dirName(entry.name);
         string artistDir = dirName(albumDir);
 
-        string trackArtist = track.audio.getTag("ARTIST");
-        string trackAlbum = track.audio.getTag("ALBUM");
+        string trackArtist;
+        string[] artistTags = track.audio["ARTIST"];
+        if (artistTags.length > 0)
+            trackArtist = artistTags[0];
+
+        string trackAlbum;
+        string[] albumTags = track.audio["ALBUM"];
+        if (albumTags.length > 0)
+            trackAlbum = albumTags[0];
 
         if (trackAlbum.length == 0)
             trackAlbum = baseName(albumDir);

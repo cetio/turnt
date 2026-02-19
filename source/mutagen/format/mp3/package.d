@@ -1,17 +1,15 @@
 module mutagen.format.mp3;
 
-public import mutagen.format.mp3.frame;
-
-import std.stdio : File;
-import std.string : toUpper;
-import std.conv : to;
-import mutagen.format.mp3.frame : parseApic, parseTxxx, parsePopCount, parseTextFrame;
+import mutagen.format.mp3.frame;
+import std.stdio;
+import std.conv;
+import std.string;
 
 class MP3
 {
     File file;
     Frame[] frames;
-    ubyte[] image;
+    ubyte[] imageData;
 
     this(File file)
     {
@@ -44,47 +42,112 @@ class MP3
             if (!valid)
                 break;
             frames ~= frame;
-        }
 
-        foreach (ref frame; frames)
-        {
-            if (frame.id == "APIC" && image.length == 0)
-                image = parseApic(frame.data);
+            if (imageData.length == 0)
+            {
+                if (frame.data.type == typeid(ApicFrame))
+                {
+                    ApicFrame apic = frame.data.get!ApicFrame;
+                    imageData = apic.image;
+                }
+            }
         }
 
         this.file.close();
     }
 
-    string opIndex(string str)
+    string[] opIndex(string str) const
     {
         str = str.toUpper();
         foreach (ref frame; frames)
         {
-            if (frame.id == "TXXX")
+            if (frame.data.type == typeid(TxxxFrame))
             {
-                string desc;
-                string value;
-                parseTxxx(frame.data, desc, value);
-                if (desc.toUpper() == str && value.length > 0)
-                    return value;
+                const(TxxxFrame) txxx = frame.data.get!TxxxFrame;
+                if (txxx.desc.toUpper() == str && txxx.value.length > 0)
+                    return [txxx.value];
             }
-            else if (frame.id == "PCNT" && str == "PLAY_COUNT")
-                return parsePopCount(frame.data).to!string;
-            else if (frame.id == "TIT2" && str == "TITLE")
-                return parseTextFrame(frame.data);
-            else if (frame.id == "TPE1" && str == "ARTIST")
-                return parseTextFrame(frame.data);
-            else if (frame.id == "TALB" && str == "ALBUM")
-                return parseTextFrame(frame.data);
-            else if (frame.id == "TRCK" && str == "TRACKNUMBER")
-                return parseTextFrame(frame.data);
-            else if (frame.id == str)
-                return parseTextFrame(frame.data);
+            else if (frame.data.type == typeid(PcntFrame))
+            {
+                if (str == "PLAY_COUNT")
+                {
+                    const(PcntFrame) pcnt = frame.data.get!PcntFrame;
+                    return [pcnt.count.to!string];
+                }
+            }
+            else if (frame.data.type == typeid(TextFrame))
+            {
+                const(TextFrame) text = frame.data.get!TextFrame;
+                if (text.id == "TIT2" && str == "TITLE")
+                    return [text.text];
+                else if (text.id == "TPE1" && str == "ARTIST")
+                    return [text.text];
+                else if (text.id == "TALB" && str == "ALBUM")
+                    return [text.text];
+                else if (text.id == "TRCK" && str == "TRACKNUMBER")
+                    return [text.text];
+                else if (text.id == str)
+                    return [text.text];
+            }
         }
         return null;
     }
 
-    // void opIndexAssign(string value, string tagName);
+    string opIndexAssign(string val, string tag)
+    {
+        tag = tag.toUpper();
+        foreach (ref frame; frames)
+        {
+            if (frame.data.type == typeid(TxxxFrame))
+            {
+                TxxxFrame txxx = frame.data.get!TxxxFrame;
+                if (txxx.desc.toUpper() == tag)
+                {
+                    txxx.value = val;
+                    frame.data = txxx;
+                    return val;
+                }
+            }
+            else if (frame.data.type == typeid(PcntFrame))
+            {
+                if (tag == "PLAY_COUNT" || tag == "PCNT")
+                {
+                    PcntFrame pcnt = frame.data.get!PcntFrame;
+                    pcnt.count = val.to!int;
+                    frame.data = pcnt;
+                    return val;
+                }
+            }
+            else if (frame.data.type == typeid(TextFrame))
+            {
+                TextFrame text = frame.data.get!TextFrame;
+                if ((text.id == "TIT2" && tag == "TITLE") ||
+                    (text.id == "TPE1" && tag == "ARTIST") ||
+                    (text.id == "TALB" && tag == "ALBUM") ||
+                    (text.id == "TRCK" && tag == "TRACKNUMBER") ||
+                    (text.id == tag))
+                {
+                    text.text = val;
+                    frame.data = text;
+                    return val;
+                }
+            }
+        }
 
-    // void opIndexAssign(Frame frame, string frameId);
+        if (tag == "PLAY_COUNT" || tag == "PCNT")
+        {
+            Frame f;
+            PcntFrame p;
+            p.count = val.to!int;
+            f.data = p;
+            frames ~= f;
+            return val;
+        }
+        return val;
+    }
+
+    ubyte[] image() const
+    {
+        return imageData.dup;
+    }
 }

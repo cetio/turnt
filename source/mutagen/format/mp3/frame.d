@@ -1,13 +1,14 @@
 module mutagen.format.mp3.frame;
 
-import std.stdio : File;
-import std.string : toLower, toUpper;
+import std.stdio;
+import std.string;
+import std.variant;
+import std.conv;
 
 struct Frame
 {
-    string id;
     uint size;
-    ubyte[] data;
+    Variant data;
 
     this(File file, ubyte ver, out bool valid)
     {
@@ -19,7 +20,7 @@ struct Frame
         if (frameHeader[0] == 0)
             return;
 
-        id = cast(string)frameHeader[0..4];
+        string id = cast(string)frameHeader[0..4];
         if (ver == 4)
             size = (cast(uint)frameHeader[0] << 21)
                 | (cast(uint)frameHeader[1] << 14)
@@ -34,87 +35,108 @@ struct Frame
         if (size == 0 || file.tell() + size > file.size())
             return;
 
-        data = file.rawRead(new ubyte[](size));
+        ubyte[] payload = file.rawRead(new ubyte[](size));
         valid = true;
+
+        if (id == "APIC")
+            data = ApicFrame(payload);
+        else if (id == "TXXX")
+            data = TxxxFrame(payload);
+        else if (id == "PCNT")
+            data = PcntFrame(payload);
+        else if (id.length > 0 && id[0] == 'T')
+            data = TextFrame(id, payload);
     }
 }
 
-package:
-
-string parseTextFrame(ubyte[] data)
+struct TextFrame
 {
-    if (data.length < 2)
-        return "";
+    string id;
+    string text;
 
-    ubyte encoding = data[0];
-    if (encoding == 0 || encoding == 3)
-        return cast(string)data[1..$];
-
-    string ret;
-    foreach (i; 1..data.length)
+    this(string id, ubyte[] data)
     {
-        if (data[i] != 0)
-            ret ~= cast(char)data[i];
+        this.id = id;
+        if (data.length < 2)
+            return;
+
+        ubyte encoding = data[0];
+        if (encoding == 0 || encoding == 3)
+            text = cast(string)data[1..$];
+        else
+        {
+            foreach (i; 1..data.length)
+            {
+                if (data[i] != 0)
+                    text ~= cast(char)data[i];
+            }
+        }
     }
-    return ret;
 }
 
-ubyte[] parseApic(ubyte[] data)
+struct ApicFrame
 {
-    ubyte[] ret;
-    if (data.length < 4)
-        return ret;
+    ubyte[] image;
 
-    size_t p = 1;
-    while (p < data.length && data[p] != 0)
-        p++;
-    if (p >= data.length)
-        return ret;
-    p++;
-
-    if (p >= data.length)
-        return ret;
-    p++;
-
-    while (p < data.length && data[p] != 0)
-        p++;
-    if (p < data.length)
-        p++;
-
-    if (p < data.length)
-        ret = data[p..$].dup;
-    return ret;
-}
-
-void parseTxxx(ubyte[] data, out string desc, out string val)
-{
-    if (data.length < 2)
-        return;
-    ubyte encoding = data[0];
-    size_t p = 1;
-    size_t descEnd = p;
-
-    if (encoding == 0 || encoding == 3) // Latin1 or UTF-8
+    this(ubyte[] data)
     {
-        while (descEnd < data.length && data[descEnd] != 0)
-            descEnd++;
-        desc = cast(string)data[p..descEnd];
-        if (descEnd + 1 < data.length)
-            val = cast(string)data[descEnd + 1..$];
-    }
-    else
-    {
-        desc = "";
-        val = "";
+        if (data.length < 4)
+            return;
+
+        size_t p = 1;
+        while (p < data.length && data[p] != 0)
+            p++;
+        if (p >= data.length)
+            return;
+        p++;
+
+        if (p >= data.length)
+            return;
+        p++;
+
+        while (p < data.length && data[p] != 0)
+            p++;
+        if (p < data.length)
+            p++;
+
+        if (p < data.length)
+            image = data[p..$].dup;
     }
 }
 
-int parsePopCount(ubyte[] data)
+struct TxxxFrame
 {
-    if (data.length == 0)
-        return 0;
-    int result = 0;
-    foreach (b; data)
-        result = (result << 8) | b;
-    return result;
+    string desc;
+    string value;
+
+    this(ubyte[] data)
+    {
+        if (data.length < 2)
+            return;
+        ubyte encoding = data[0];
+        size_t p = 1;
+        size_t descEnd = p;
+
+        if (encoding == 0 || encoding == 3)
+        {
+            while (descEnd < data.length && data[descEnd] != 0)
+                descEnd++;
+            desc = cast(string)data[p..descEnd];
+            if (descEnd + 1 < data.length)
+                value = cast(string)data[descEnd + 1..$];
+        }
+    }
+}
+
+struct PcntFrame
+{
+    int count;
+
+    this(ubyte[] data)
+    {
+        if (data.length == 0)
+            return;
+        foreach (b; data)
+            count = (count << 8) | b;
+    }
 }

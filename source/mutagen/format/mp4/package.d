@@ -1,22 +1,27 @@
 module mutagen.format.mp4;
 
-public import mutagen.format.mp4.atom;
-
-import std.stdio : File, SEEK_SET;
-import std.string : toUpper;
-import std.bitmanip : bigEndianToNative;
+import mutagen.format.mp4.atom;
+import std.stdio;
+import std.string;
+import std.bitmanip;
 
 class MP4
 {
     File file;
     Atom[] atoms;
-    ubyte[] image;
+    ubyte[] imageData;
 
     this(File file)
     {
         this.file = file;
+        parseRange(file.tell(), file.size());
+        this.file.close();
+    }
 
-        while (file.tell() + 8 <= file.size())
+    private void parseRange(long start, long end)
+    {
+        file.seek(start, SEEK_SET);
+        while (file.tell() + 8 <= end && file.tell() + 8 <= file.size())
         {
             long atomStart = file.tell();
             ubyte[8] header = file.rawRead(new ubyte[8]);
@@ -52,95 +57,100 @@ class MP4
             if (payloadSize > 0)
             {
                 ubyte[] payload = file.rawRead(new ubyte[](payloadSize));
-                Atom atom = Atom(header ~ payload, atomStart);
+                Atom atom = Atom(header ~ payload);
                 atoms ~= atom;
 
-                if (atomType == "covr" && image.length == 0)
-                    image = parseCover(atom);
+                if (atomType == "covr" && imageData.length == 0)
+                {
+                    if (atom.data.type == typeid(CoverAtom))
+                    {
+                        CoverAtom covr = atom.data.get!CoverAtom;
+                        imageData = covr.image;
+                    }
+                }
             }
 
             file.seek(atomEnd, SEEK_SET);
         }
-        
-        file.close();
     }
 
-    string opIndex(string str)
+    string[] opIndex(string str) const
     {
         str = str.toUpper();
         
         foreach (ref atom; atoms)
         {
-            if (atom.id == "----")
+            if (atom.data.type == typeid(FreeformAtom))
             {
-                string name;
-                string value;
-                parseFreeform(atom, name, value);
-                if (name.toUpper() == str && value.length > 0)
-                    return value;
+                const(FreeformAtom) f = atom.data.get!FreeformAtom;
+                if (f.name.toUpper() == str && f.value.length > 0)
+                    return [f.value];
             }
-            else if (atom.id == "\xA9nam" && str == "TITLE")
-                return cast(string)atom.data;
-            else if (atom.id == "\xA9ART" && str == "ARTIST")
-                return cast(string)atom.data;
-            else if (atom.id == "\xA9alb" && str == "ALBUM")
-                return cast(string)atom.data;
-            else if (atom.id == "trkn" && str == "TRACKNUMBER")
-                return cast(string)atom.data;
-            else if (atom.id == str)
-                return cast(string)atom.data;
+            else if (atom.data.type == typeid(TextAtom))
+            {
+                const(TextAtom) t = atom.data.get!TextAtom;
+                if (t.id == "\xA9nam" && str == "TITLE")
+                    return [t.text];
+                else if (t.id == "\xA9ART" && str == "ARTIST")
+                    return [t.text];
+                else if (t.id == "\xA9alb" && str == "ALBUM")
+                    return [t.text];
+                else if (t.id == "trkn" && str == "TRACKNUMBER")
+                    return [t.text];
+                else if (t.id.toUpper() == str)
+                    return [t.text];
+            }
         }
         return null;
     }
 
-private:
-    void parseRange(long start, long end)
+    string opIndexAssign(string val, string tag)
     {
-        file.seek(start, SEEK_SET);
-        while (file.tell() + 8 <= end && file.tell() + 8 <= file.size())
+        tag = tag.toUpper();
+        
+        foreach (ref atom; atoms)
         {
-            long atomStart = file.tell();
-            ubyte[8] header = file.rawRead(new ubyte[8]);
-            
-            ubyte[4] sizeBytes = header[0..4];
-            uint atomSize = bigEndianToNative!uint(sizeBytes);
-            string atomType = cast(string)header[4..8];
-
-            if (atomSize < 8)
-                break;
-
-            long atomEnd = atomStart + atomSize;
-            if (atomEnd > end || atomEnd > file.size())
-                break;
-
-            bool container = atomType == "moov" || atomType == "udta"
-                || atomType == "meta" || atomType == "ilst"
-                || atomType == "trak" || atomType == "mdia"
-                || atomType == "minf" || atomType == "stbl";
-
-            if (container)
+            if (atom.data.type == typeid(FreeformAtom))
             {
-                long payloadStart = atomStart + 8;
-                if (atomType == "meta")
-                    payloadStart += 4;
-                if (payloadStart < atomEnd)
-                    parseRange(payloadStart, atomEnd);
-                file.seek(atomEnd, SEEK_SET);
-                continue;
+                FreeformAtom f = atom.data.get!FreeformAtom;
+                if (f.name.toUpper() == tag)
+                {
+                    f.value = val;
+                    atom.data = f;
+                    return val;
+                }
             }
-
-            uint payloadSize = atomSize - 8;
-            if (payloadSize > 0)
+            else if (atom.data.type == typeid(TextAtom))
             {
-                ubyte[] payload = file.rawRead(new ubyte[](payloadSize));
-                Atom atom = Atom(header ~ payload, atomStart);
-                atoms ~= atom;
-
-                if (atomType == "covr" && image.length == 0)
-                    image = parseCover(atom);
+                TextAtom t = atom.data.get!TextAtom;
+                if ((t.id == "\xA9nam" && tag == "TITLE") ||
+                    (t.id == "\xA9ART" && tag == "ARTIST") ||
+                    (t.id == "\xA9alb" && tag == "ALBUM") ||
+                    (t.id == "trkn" && tag == "TRACKNUMBER") ||
+                    (t.id.toUpper() == tag))
+                {
+                    t.text = val;
+                    atom.data = t;
+                    return val;
+                }
             }
-
-            file.seek(atomEnd, SEEK_SET);
         }
+
+        if (tag == "PLAY_COUNT" || tag == "PCNT")
+        {
+            Atom a;
+            FreeformAtom f;
+            f.name = "PLAY_COUNT";
+            f.value = val;
+            a.data = f;
+            atoms ~= a;
+            return val;
+        }
+        return val;
+    }
+
+    ubyte[] image() const
+    {
+        return imageData.dup;
     }
 }

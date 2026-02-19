@@ -1,68 +1,96 @@
 module mutagen.format.mp4.atom;
 
-import std.bitmanip : bigEndianToNative;
-import std.string : toUpper;
+import std.bitmanip;
+import std.string;
+import std.variant;
 
 struct Atom
 {
-    string type;
     uint size;
-    long dataStart;
-    ubyte[] data;
+    Variant data;
 
-    this(ubyte[] headerData, long startPos)
+    this(ubyte[] headerData)
     {
         size = bigEndianToNative!uint(headerData[0..4]);
-        type = cast(string)headerData[4..8];
-        dataStart = startPos + 8;
+        string id = cast(string)headerData[4..8];
+        
+        ubyte[] payload;
         if (size > 8)
-            data = headerData[8..$];
+            payload = headerData[8..$];
+
+        if (id == "----")
+            data = FreeformAtom(payload);
+        else if (id == "covr")
+            data = CoverAtom(payload);
+        else
+            data = TextAtom(id, payload);
     }
 }
 
-void parseFreeform(ref Atom atom, out string name, out string value)
+struct FreeformAtom
 {
-    size_t pos = 0;
-    name = "";
-    value = "";
+    string name;
+    string value;
 
-    while (pos + 8 <= atom.data.length)
+    this(ubyte[] data)
     {
-        ubyte[4] sizeBytes = atom.data[pos..pos + 4];
-        uint subSize = bigEndianToNative!uint(sizeBytes);
-        if (subSize < 8 || pos + subSize > atom.data.length)
-            break;
+        size_t pos = 0;
+        name = "";
+        value = "";
 
-        string subType = cast(string)atom.data[pos + 4..pos + 8];
-        ubyte[] payload = atom.data[pos + 8..pos + subSize];
-
-        if (subType == "name" && payload.length > 4)
-            name = cast(string)payload[4..$];
-        else if (subType == "data" && payload.length > 8)
-            value = cast(string)payload[8..$];
-
-        pos += subSize;
-    }
-}
-
-ubyte[] parseCover(ref Atom atom)
-{
-    ubyte[] ret;
-    size_t pos = 0;
-    while (pos + 8 <= atom.data.length)
-    {
-        ubyte[4] sizeBytes = atom.data[pos..pos + 4];
-        uint subSize = bigEndianToNative!uint(sizeBytes);
-        if (subSize < 8 || pos + subSize > atom.data.length)
-            break;
-
-        string subType = cast(string)atom.data[pos + 4..pos + 8];
-        if (subType == "data" && subSize > 16)
+        while (pos + 8 <= data.length)
         {
-            ret = atom.data[pos + 16..pos + subSize].dup;
-            break;
+            ubyte[4] sizeBytes = data[pos..pos + 4];
+            uint subSize = bigEndianToNative!uint(sizeBytes);
+            if (subSize < 8 || pos + subSize > data.length)
+                break;
+
+            string subType = cast(string)data[pos + 4..pos + 8];
+            ubyte[] payload = data[pos + 8..pos + subSize];
+
+            if (subType == "name" && payload.length > 4)
+                name = cast(string)payload[4..$];
+            else if (subType == "data" && payload.length > 8)
+                value = cast(string)payload[8..$];
+
+            pos += subSize;
         }
-        pos += subSize;
     }
-    return ret;
+}
+
+struct CoverAtom
+{
+    ubyte[] image;
+
+    this(ubyte[] data)
+    {
+        size_t pos = 0;
+        while (pos + 8 <= data.length)
+        {
+            ubyte[4] sizeBytes = data[pos..pos + 4];
+            uint subSize = bigEndianToNative!uint(sizeBytes);
+            if (subSize < 8 || pos + subSize > data.length)
+                break;
+
+            string subType = cast(string)data[pos + 4..pos + 8];
+            if (subType == "data" && subSize > 16)
+            {
+                image = data[pos + 16..pos + subSize].dup;
+                break;
+            }
+            pos += subSize;
+        }
+    }
+}
+
+struct TextAtom
+{
+    string id;
+    string text;
+
+    this(string id, ubyte[] data)
+    {
+        this.id = id;
+        this.text = cast(string)data;
+    }
 }

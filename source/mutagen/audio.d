@@ -1,9 +1,10 @@
 module mutagen.audio;
 
-import std.conv : to;
-import std.path : extension;
-import std.stdio : File;
-import std.string : toLower, toUpper;
+import std.path;
+import std.stdio;
+import std.string;
+import std.conv;
+import std.variant;
 
 import mutagen.format.flac;
 import mutagen.format.mp3;
@@ -13,155 +14,96 @@ enum AudioFormat
 {
     Unknown,
     Flac,
-    Mp3,
-    Mp4
+    MP3,
+    MP4
 }
 
-final class Audio
+struct Audio
 {
-public:
-    string path;
     File file;
-    AudioFormat format;
-    string[string] tags;
-    ubyte[] image;
+    Variant data;
 
     this(File file)
     {
+        this.file = file;
+
         switch (extension(file.name).toLower())
         {
             case ".flac":
-                format = AudioFormat.Flac;
-                parseFlac();
+                data = new FLAC(file);
                 break;
             case ".mp3":
-                format = AudioFormat.Mp3;
-                parseMp3();
+                data = new MP3(file);
                 break;
             case ".m4a":
             case ".mp4":
             case ".aac":
-                format = AudioFormat.Mp4;
-                parseMp4();
+                data = new MP4(file);
                 break;
             default:
-                format = AudioFormat.Unknown;
                 break;
         }
 
         file.close();
     }
 
-    string getTag(string key)
+    string[] opIndex(string str) const
     {
-        string upper = key.toUpper();
-        if (string* value = upper in tags)
-            return *value;
-        return "";
+        if (data.type == typeid(FLAC))
+        {
+            const(FLAC) flac = data.get!FLAC;
+            return flac[str];
+        }
+        if (data.type == typeid(MP3))
+        {
+            const(MP3) mp3 = data.get!MP3;
+            return mp3[str];
+        }
+        if (data.type == typeid(MP4))
+        {
+            const(MP4) mp4 = data.get!MP4;
+            return mp4[str];
+        }
+        return null;
     }
 
-    int getPlayCount()
+    string opIndexAssign(string val, string tag)
     {
-        if (string* value = "PLAY_COUNT" in tags)
+        if (data.type == typeid(FLAC))
         {
-            try
-            {
-                return (*value).to!int;
-            }
-            catch (Exception)
-            {
-                return 0;
-            }
+            FLAC flac = data.get!FLAC;
+            return flac[tag] = val;
         }
-        return 0;
+        else if (data.type == typeid(MP3))
+        {
+            MP3 mp3 = data.get!MP3;
+            return mp3[tag] = val;
+        }
+        else if (data.type == typeid(MP4))
+        {
+            MP4 mp4 = data.get!MP4;
+            return mp4[tag] = val;
+        }
+        return val;
     }
 
-    void setPlayCount(int count)
+    ubyte[] image() const
     {
-        tags["PLAY_COUNT"] = count.to!string;
-    }
-
-private:
-    void parseFlac()
-    {
-        try
+        if (data.type == typeid(FLAC))
         {
-            FLAC flac = new FLAC(File(path, "rb"));
-            foreach (ref header; flac.headers)
-            {
-                if (header.type == HeaderType.VorbisComment)
-                {
-                    Vorbis* vorbis = header.data.peek!Vorbis;
-                    if (vorbis !is null)
-                    {
-                        foreach (k, v; vorbis.tags)
-                        if (v.length > 0)
-                            tags[k] = v[0];
-                    }
-                }
-                else if (header.type == HeaderType.Picture && image.length == 0)
-                {
-                    Picture* picture = header.data.peek!Picture;
-                    if (picture !is null)
-                        image = picture.data.dup;
-                }
-            }
+            const(FLAC) flac = data.get!FLAC;
+            return flac.image();
         }
-        catch (Exception)
+        if (data.type == typeid(MP3))
         {
+            const(MP3) mp3 = data.get!MP3;
+            return mp3.image();
         }
-    }
-
-    void parseMp3()
-    {
-        try
+        if (data.type == typeid(MP4))
         {
-            MP3 mp3 = new MP3(File(path, "rb"));
-            tags["TITLE"] = mp3["TITLE"];
-            tags["ARTIST"] = mp3["ARTIST"];
-            tags["ALBUM"] = mp3["ALBUM"];
-            tags["TRACKNUMBER"] = mp3["TRACKNUMBER"];
-            tags["PLAY_COUNT"] = mp3["PLAY_COUNT"];
-            if (mp3.image.length > 0)
-                image = mp3.image.dup;
+            const(MP4) mp4 = data.get!MP4;
+            return mp4.image();
         }
-        catch (Exception)
-        {
-        }
-    }
-
-    void parseMp4()
-    {
-        try
-        {
-            MP4 mp4 = new MP4(File(path, "rb"));
-            tags["TITLE"] = mp4["TITLE"];
-            tags["ARTIST"] = mp4["ARTIST"];
-            tags["ALBUM"] = mp4["ALBUM"];
-            tags["TRACKNUMBER"] = mp4["TRACKNUMBER"];
-            if (mp4.image.length > 0)
-                image = mp4.image.dup;
-        }
-        catch (Exception)
-        {
-        }
-    }
-
-    void parseOpus()
-    {
-        try
-        {
-            Opus opus = new Opus(path);
-            foreach (k, v; opus.tags)
-                tags[k.toUpper()] = v;
-            if (opus.image.length > 0)
-                image = opus.image.dup;
-        }
-        catch (Exception)
-        {
-            string[string] fallback = readOpusTags(path);
-            foreach (k, v; fallback)
-                tags[k.toUpper()] = v;
-        }
+        return [];
     }
 }

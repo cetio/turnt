@@ -1,6 +1,7 @@
 module mutagen.catalog.types;
 
 import std.conv;
+import std.stdio;
 import mutagen.audio;
 
 class Track
@@ -16,13 +17,23 @@ public:
     this(string file)
     {
         this.file = file;
-        audio = new Audio(file);
+        audio = Audio(File(file, "rb"));
 
-        title = audio.getTag("TITLE");
+        string[] titleTags = audio["TITLE"];
+        if (titleTags.length > 0)
+            title = titleTags[0];
 
-        string trackValue = audio.getTag("TRACKNUMBER");
+        string trackValue;
+        string[] trackNumberTags = audio["TRACKNUMBER"];
+        if (trackNumberTags.length > 0)
+            trackValue = trackNumberTags[0];
+        
         if (trackValue.length == 0)
-            trackValue = audio.getTag("TRACK");
+        {
+            string[] trackTags = audio["TRACK"];
+            if (trackTags.length > 0)
+                trackValue = trackTags[0];
+        }
         trackNumber = parseTrackNumber(trackValue);
 
         if (title.length == 0)
@@ -38,24 +49,32 @@ public:
 
     int getPlayCount()
     {
-        if (audio is null)
+        if (!audio.data.hasValue)
             return 0;
 
-        string value = audio.getTag("PLAY_COUNT");
+        string value;
+        string[] playCountTags = audio["PLAY_COUNT"];
+        if (playCountTags.length > 0)
+            value = playCountTags[0];
+
         if (value.length == 0)
-            value = audio.getTag("PCNT");
+        {
+            string[] pcntTags = audio["PCNT"];
+            if (pcntTags.length > 0)
+                value = pcntTags[0];
+        }
         return parsePlayCount(value);
     }
 
     bool setPlayCount(int count)
     {
-        if (audio is null)
+        if (!audio.data.hasValue)
             return false;
 
         if (count < 0)
             count = 0;
 
-        audio.setPlayCount(count);
+        audio["PLAY_COUNT"] = count.to!string;
         return true;
     }
 }

@@ -1,43 +1,9 @@
 module mutagen.format.flac;
 
-public import mutagen.format.flac.vorbis;
-public import mutagen.format.flac.picture;
-
-import std.stdio : File, SEEK_CUR;
-import std.variant : Variant;
-
-enum HeaderType : ubyte
-{
-    StreamInfo,
-    Padding,
-    Application,
-    SeekTable,
-    VorbisComment,
-    CueSheet,
-    Picture
-}
-
-struct Header
-{
-    HeaderType type;
-    uint length;
-    Variant data;
-
-    this(File file, out bool cont)
-    {
-        ubyte[4] bytes = file.rawRead(new ubyte[4]);
-        cont = (bytes[0] & 0x80) == 0;
-        type = cast(HeaderType)(bytes[0] & 0x7F);
-        length = (cast(uint)bytes[1] << 16)
-            | (cast(uint)bytes[2] << 8)
-            | (cast(uint)bytes[3]);
-
-        if (type == HeaderType.VorbisComment)
-            data = Vorbis(file);
-        else if (type == HeaderType.Picture)
-            data = Picture(file);
-    }
-}
+import mutagen.format.flac.block;
+import std.stdio;
+import std.string;
+import std.variant;
 
 class FLAC
 {
@@ -59,8 +25,8 @@ class FLAC
             if (!cont)
                 break;
 
-            if (header.type != HeaderType.VorbisComment
-                && header.type != HeaderType.Picture)
+            if (header.data.type != typeid(VorbisBlock)
+                && header.data.type != typeid(PictureBlock))
             {
                 if (header.length > file.size() - file.tell())
                     break;
@@ -69,5 +35,57 @@ class FLAC
             }
         }
         file.close();
+    }
+
+    string[] opIndex(string str) const
+    {
+        str = str.toUpper();
+        
+        foreach (ref header; headers)
+        {
+            if (header.data.type == typeid(VorbisBlock))
+            {
+                const(VorbisBlock) v = header.data.get!VorbisBlock;
+                if (str in v.tags)
+                    return v.tags[str].dup;
+            }
+        }
+        return null;
+    }
+
+    string opIndexAssign(string val, string tag)
+    {
+        tag = tag.toUpper();
+
+        foreach (ref header; headers)
+        {
+            if (header.data.type == typeid(VorbisBlock))
+            {
+                VorbisBlock v = header.data.get!VorbisBlock;
+                v.tags[tag] = [val];
+                header.data = v;
+                return val;
+            }
+        }
+        
+        Header h;
+        VorbisBlock v;
+        v.tags[tag] = [val];
+        h.data = v;
+        headers ~= h;
+        return val;
+    }
+
+    ubyte[] image() const
+    {
+        foreach (ref header; headers)
+        {
+            if (header.data.type == typeid(PictureBlock))
+            {
+                const(PictureBlock) p = header.data.get!PictureBlock;
+                return p.data.dup;
+            }
+        }
+        return [];
     }
 }

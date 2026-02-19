@@ -15,7 +15,7 @@ class MP4
     this(File file)
     {
         this.file = file;
-        file.seek(0, SEEK_SET);
+
         while (file.tell() + 8 <= file.size())
         {
             long atomStart = file.tell();
@@ -61,6 +61,7 @@ class MP4
 
             file.seek(atomEnd, SEEK_SET);
         }
+        
         file.close();
     }
 

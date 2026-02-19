@@ -11,11 +11,10 @@ import mutagen.format.mp4;
 
 enum AudioFormat
 {
-    flac,
-    mp3,
-    mp4,
-    opus,
-    unknown
+    Unknown,
+    Flac,
+    Mp3,
+    Mp4
 }
 
 final class Audio
@@ -23,67 +22,36 @@ final class Audio
 public:
     string path;
     File file;
-    AudioFormat format = AudioFormat.unknown;
+    AudioFormat format;
     string[string] tags;
     ubyte[] image;
 
-    this(string path)
+    this(File file)
     {
-        this.path = path;
-        try
+        switch (extension(file.name).toLower())
         {
-            file = File(path, "rb");
-            file.close();
+            case ".flac":
+                format = AudioFormat.Flac;
+                parseFlac();
+                break;
+            case ".mp3":
+                format = AudioFormat.Mp3;
+                parseMp3();
+                break;
+            case ".m4a":
+            case ".mp4":
+            case ".aac":
+                format = AudioFormat.Mp4;
+                parseMp4();
+                break;
+            default:
+                format = AudioFormat.Unknown;
+                break;
         }
-        catch (Exception)
-        {
-        }
-        parseNow();
+
+        file.close();
     }
 
-    void parse()
-    {
-        parseNow();
-    }
-
-private:
-    void parseNow()
-    {
-        tags = null;
-        image.length = 0;
-        format = AudioFormat.unknown;
-
-        string ext = extension(path).toLower();
-        if (ext == ".flac")
-        {
-            format = AudioFormat.flac;
-            parseFlac();
-            return;
-        }
-
-        if (ext == ".mp3")
-        {
-            format = AudioFormat.mp3;
-            parseMp3();
-            return;
-        }
-
-        if (ext == ".m4a" || ext == ".mp4" || ext == ".aac")
-        {
-            format = AudioFormat.mp4;
-            parseMp4();
-            return;
-        }
-
-        if (ext == ".opus" || ext == ".ogg")
-        {
-            format = AudioFormat.opus;
-            parseOpus();
-            return;
-        }
-    }
-
-public:
     string getTag(string key)
     {
         string upper = key.toUpper();

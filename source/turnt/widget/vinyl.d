@@ -170,7 +170,7 @@ private:
             double fontSize = radius * 0.20;
             if (fontSize < 5) 
                 fontSize = 5;
-                
+
             cr.selectFontFace("Sans", FontSlant.Normal, FontWeight.Bold);
             cr.setFontSize(fontSize);
 
@@ -179,7 +179,6 @@ private:
             double ty = -radius * 0.68;
             double tx = -ext.width / 2 - ext.xBearing;
 
-            cr.save();
             cr.moveTo(tx, ty);
             cr.textPath(roman);
             cr.clip();
@@ -195,8 +194,6 @@ private:
                 cr.arc(0, 0, r, 0, PI * 2);
                 cr.stroke();
             }
-
-            cr.restore();
         }
 
         cr.restore();

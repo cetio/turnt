@@ -83,7 +83,7 @@ public:
         Vinyl[] artistVinyls;
         foreach (v; vinyls)
         {
-            if (v.kind == VinylKind.Artist)
+            if (v.isArtist)
                 artistVinyls ~= v;
         }
 

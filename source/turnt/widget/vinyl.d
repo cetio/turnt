@@ -72,7 +72,6 @@ class Vinyl : DrawingArea
 {
 private:
     uint hoverGen;
-    enum pad = 8;
 
     void drawDisc(Context cr, double cx, double cy, double radius, double angle = 0.0)
     {
@@ -114,12 +113,12 @@ private:
         cr.arc(0, 0, labelRadius, 0, PI * 2);
         cr.clip();
 
-        if (labelSurface !is null && labelW > 0 && labelH > 0)
+        if (surface !is null && size > 0)
         {
-            double scale = (labelRadius * 2.0) / fmin(cast(double)labelW, cast(double)labelH);
-            cr.translate(-labelW * scale / 2.0, -labelH * scale / 2.0);
+            double scale = (labelRadius * 2.0) / fmin(cast(double)size, cast(double)size);
+            cr.translate(-size * scale / 2.0, -size * scale / 2.0);
             cr.scale(scale, scale);
-            cr.setSourceSurface(labelSurface, 0, 0);
+            cr.setSourceSurface(surface, 0, 0);
             cr.paint();
         }
         else
@@ -223,20 +222,7 @@ private:
 
         try
         {
-            PixbufLoader loader = new PixbufLoader();
-            loader.write(img.data);
-            loader.close();
-            Pixbuf pixbuf = loader.getPixbuf();
-            if (pixbuf !is null)
-            {
-                Pixbuf scaled = pixbuf.scaleSimple(size, size, InterpType.Bilinear);
-                if (scaled !is null)
-                {
-                    labelSurface = pixbufToSurface(scaled);
-                    labelW = size;
-                    labelH = size;
-                }
-            }
+            
         }
         catch (Exception) { }
     }
@@ -246,8 +232,9 @@ public:
     string name;
     bool hovered;
     bool outlined;
-    Surface labelSurface;
-    int labelW, labelH;
+    
+    int size;
+    Surface surface;
 
     Artist artist()
         => data.get!Artist;
@@ -279,15 +266,29 @@ public:
         else static if (is(T == Track))
             size = size == -1 ? 32 : size;
 
-        int totalSize = size + pad * 2;
-        contentWidth = totalSize;
-        contentHeight = totalSize;
+        contentWidth = size + 16;
+        contentHeight = size + 16;
         halign = Align.Center;
         valign = Align.Center;
         overflow = Overflow.Visible;
         setDrawFunc(&onDraw);
 
-        loadLabel(val.image, size);
+        if (val.image.hasData)
+        {
+            PixbufLoader loader = new PixbufLoader();
+            loader.write(val.image.data);
+            loader.close();
+            Pixbuf pixbuf = loader.getPixbuf();
+            if (pixbuf !is null)
+            {
+                Pixbuf scaled = pixbuf.scaleSimple(size, size, InterpType.Bilinear);
+                if (scaled !is null)
+                {
+                    this.surface = pixbufToSurface(scaled);
+                    this.size = size;
+                }
+            }
+        }
 
         EventControllerMotion motion = new EventControllerMotion();
         motion.connectEnter(&onEnter);

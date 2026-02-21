@@ -12,7 +12,7 @@ import gtk.widget : Widget;
 
 import mutagen.catalog : Artist, Album, Track;
 import turnt.widget.card : CardWidget;
-import turnt.widget.vinyl : Vinyl, VinylKind;
+import turnt.widget.vinyl : Vinyl;
 
 enum BrowseView
 {

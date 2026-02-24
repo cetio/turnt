@@ -3,16 +3,24 @@ module turnt.view.catalog;
 import std.conv;
 import std.string : toUpper;
 
+import gdk.content_provider : ContentProvider;
+import gdk.drag : Drag;
+import gdk.paintable : Paintable;
+import gobject.types : GTypeEnum;
+import gobject.value : Value;
 import gtk.adjustment;
 import gtk.box;
+import gtk.drag_source : DragSource;
 import gtk.gesture_click;
 import gtk.scrolled_window;
 import gtk.types : Orientation, Overflow, PolicyType;
 import gtk.widget : Widget;
+import gtk.widget_paintable : WidgetPaintable;
 
 import mutagen.catalog : Artist, Album, Track;
 import turnt.widget.card : CardWidget;
 import turnt.widget.vinyl : Vinyl;
+import turnt.window : window;
 
 enum BrowseView
 {
@@ -99,15 +107,31 @@ public:
             click.connectReleased(((Vinyl vv) => delegate(int n, double x, double y) {
                 if (n == 1 && x > 70)
                     showAlbums(vv.artist);
+                else if (n == 2 && x <= 70)
+                {
+                    import turnt.window : window;
+                    window.playerView.turntable.playVinyl(vv);
+                }
             })(v));
             card.overlay.addController(click);
             
             import gtk.drag_source : DragSource;
             import gdk.content_provider : ContentProvider;
+            import gobject.value : Value;
+            import gobject.types : GTypeEnum;
+            import gdk.drag : Drag;
+            
             DragSource drag = new DragSource();
             drag.connectPrepare(((Vinyl vv) => delegate ContentProvider(double x, double y) {
-                return ContentProvider.newForValue(vv.name);
+                Value val = new Value("artist|" ~ vv.name);
+                return ContentProvider.newForValue(val);
             })(v));
+            drag.connectDragBegin(((Vinyl vv, DragSource ds) => delegate void(Drag d) {
+                import gdk.paintable : Paintable;
+                import gtk.widget_paintable : WidgetPaintable;
+                Paintable p = new WidgetPaintable(vv);
+                ds.setIcon(p, vv.contentWidth / 2, vv.contentHeight / 2);
+            })(v, drag));
             card.overlay.addController(drag);
             
             contentBox.append(card);
@@ -146,18 +170,26 @@ public:
             CardWidget card = new CardWidget(vinyl, album.name.toUpper(), artistsStr.toUpper(), album.getPlayCount());
 
             GestureClick click = new GestureClick();
-            click.connectReleased(((Album a, Artist ar) => delegate(int n, double x, double y) {
+            click.connectReleased(((Album a, Artist ar, Vinyl vv) => delegate(int n, double x, double y) {
                 if (n == 1 && x > 70)
                     showTracks(ar, a);
-            })(album, artist));
+                else if (n == 2 && x <= 70)
+                {
+                    import turnt.window : window;
+                    window.playerView.turntable.playVinyl(vv);
+                }
+            })(album, artist, vinyl));
             card.overlay.addController(click);
 
-            import gtk.drag_source : DragSource;
-            import gdk.content_provider : ContentProvider;
             DragSource drag = new DragSource();
-            drag.connectPrepare(((Vinyl vv) => delegate ContentProvider(double x, double y) {
-                return ContentProvider.newForValue(vv.name);
-            })(vinyl));
+            drag.connectPrepare(((Vinyl vv, Artist ar, Album a) => delegate ContentProvider(double x, double y) {
+                Value val = new Value("album|" ~ ar.name ~ "|" ~ a.name);
+                return ContentProvider.newForValue(val);
+            })(vinyl, artist, album));
+            drag.connectDragBegin(((Vinyl vv, DragSource ds) => delegate void(Drag d) {
+                Paintable p = new WidgetPaintable(vv);
+                ds.setIcon(p, vv.contentWidth / 2, vv.contentHeight / 2);
+            })(vinyl, drag));
             card.overlay.addController(drag);
 
             contentBox.append(card);
@@ -199,6 +231,32 @@ public:
             Vinyl vinyl = new Vinyl(track);
             string title = track.number.to!string~". "~track.name.toUpper();
             CardWidget card = new CardWidget(vinyl, title, "", track.getPlayCount(), 1, 1, "track-name");
+
+            GestureClick click = new GestureClick();
+            click.connectReleased(((Vinyl vv) => delegate(int n, double x, double y) {
+                if (n == 2)
+                {
+                    import turnt.window : window;
+                    window.playerView.turntable.playVinyl(vv);
+                }
+            })(vinyl));
+            card.overlay.addController(click);
+
+            DragSource drag = new DragSource();
+            drag.connectPrepare(((Vinyl vv, Track t) => delegate ContentProvider(double x, double y) {
+                // Determine a primary artist from the album for the drag id
+                string aName = "Unknown";
+                if (t.album.artists.length > 0)
+                    aName = t.album.artists[0].name;
+                Value val = new Value("track|" ~ aName ~ "|" ~ t.album.name ~ "|" ~ t.audio.file.name);
+                return ContentProvider.newForValue(val);
+            })(vinyl, track));
+            drag.connectDragBegin(((Vinyl vv, DragSource ds) => delegate void(Drag d) {
+                Paintable p = new WidgetPaintable(vv);
+                ds.setIcon(p, vv.contentWidth / 2, vv.contentHeight / 2);
+            })(vinyl, drag));
+            card.overlay.addController(drag);
+
             contentBox.append(card);
         };
 

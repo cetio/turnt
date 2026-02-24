@@ -18,6 +18,7 @@ import gtk.types : Align, Overflow;
 
 import mutagen.catalog : Artist, Album, Track;
 import turnt.widget.vinyl : Vinyl;
+import turnt.window : window;
 
 class TurntableWidget : DrawingArea
 {
@@ -28,6 +29,7 @@ private:
     
     bool hasVinyl = false;
     Vinyl vinyl;
+    Vinyl largeVinyl;
     
     double vinylScale = 0.0;
     double targetVinylScale = 1.0;
@@ -109,67 +111,69 @@ private:
             return;
             
         cr.save();
-        cr.translate(cx + platterR + 30, cy + platterR - 40);
+        cr.translate(cx - platterR, cy - platterR - 30);
         
         cr.selectFontFace("Sans", FontSlant.Normal, FontWeight.Bold);
         
-        string artistStr = "";
-        string albumStr = "";
-        string detailStr = "";
+        string artistStr = null;
+        string albumStr = null;
+        string detailStr = null;
         
         if (vinyl.isArtist)
         {
-            Artist a = vinyl.artist;
-            artistStr = a.name.toUpper();
-            detailStr = a.albums.length.to!string ~ " ALBUMS";
+            Artist artist = vinyl.artist;
+            artistStr = artist.name.toUpper();
+            detailStr = artist.albums.length.to!string ~ " ALBUMS";
         }
         else if (vinyl.isAlbum)
         {
-            Album a = vinyl.album;
-            albumStr = a.name.toUpper();
-            detailStr = a.tracks.length.to!string ~ " TRACKS";
-            foreach (i, ar; a.artists)
+            Album album = vinyl.album;
+            albumStr = album.name.toUpper();
+            detailStr = album.tracks.length.to!string ~ " TRACKS";
+            foreach (size_t i, Artist ar; album.artists)
             {
-                if (i > 0) artistStr ~= ", ";
+                if (i > 0)
+                    artistStr ~= ", ";
                 artistStr ~= ar.name.toUpper();
             }
         }
         else if (vinyl.isTrack)
         {
-            Track t = vinyl.track;
-            detailStr = t.name.toUpper();
-            albumStr = t.album.name.toUpper();
-            foreach (i, ar; t.album.artists)
+            Track track = vinyl.track;
+            detailStr = track.name.toUpper();
+            albumStr = track.album.name.toUpper();
+            foreach (size_t i, Artist ar; track.album.artists)
             {
-                if (i > 0) artistStr ~= ", ";
+                if (i > 0)
+                    artistStr ~= ", ";
                 artistStr ~= ar.name.toUpper();
             }
         }
 
-        double y = 0;
-        if (artistStr.length > 0)
+        double yPos = 0;
+        if (artistStr !is null)
         {
             cr.setFontSize(16);
             cr.setSourceRgba(1.0, 1.0, 1.0, 0.9);
-            cr.moveTo(0, y);
+            cr.moveTo(0, yPos);
             cr.showText(artistStr);
-            y += 24;
+            yPos += 24;
         }
         
-        if (albumStr.length > 0)
+        if (albumStr !is null)
         {
             cr.setFontSize(14);
             cr.setSourceRgba(0.8, 0.8, 0.8, 0.8);
-            cr.moveTo(0, y);
+            cr.moveTo(0, yPos);
             cr.showText(albumStr);
-            y += 20;
+            yPos += 20;
         }
         
-        if (detailStr.length > 0)
+        if (detailStr !is null)
         {
             cr.setFontSize(12);
             cr.setSourceRgba(0.6, 0.6, 0.6, 0.7);
-            cr.moveTo(0, y);
+            cr.moveTo(0, yPos);
             cr.showText(detailStr);
         }
         
@@ -188,7 +192,7 @@ private:
 
         drawPlatter(cr, cx, cy, platterR);
 
-        if (hasVinyl && vinyl !is null)
+        if (hasVinyl && largeVinyl !is null)
         {
             cr.save();
             cr.translate(cx, cy);
@@ -196,22 +200,9 @@ private:
             cr.scale(vinylScale, vinylScale);
             cr.translate(-cx, -cy);
             
-            // Draw actual vinyl large
-            int vSize = cast(int)(platterR * 1.84);
-            Vinyl tempVinyl;
-            
-            if (vinyl.isArtist)
-                tempVinyl = new Vinyl(vinyl.artist, vSize);
-            else if (vinyl.isAlbum)
-                tempVinyl = new Vinyl(vinyl.album, vSize);
-            else if (vinyl.isTrack)
-                tempVinyl = new Vinyl(vinyl.track, vSize);
-                
-            if (tempVinyl !is null)
-            {
-                cr.translate(cx - vSize/2, cy - vSize/2);
-                tempVinyl.onDraw(tempVinyl, cr, vSize, vSize);
-            }
+            int vSize = largeVinyl.size;
+            cr.translate(cx - vSize/2, cy - vSize/2);
+            largeVinyl.onDraw(largeVinyl, cr, vSize, vSize);
             
             cr.restore();
         }
@@ -237,14 +228,20 @@ private:
                 vinylScale = 0.0;
                 tonearmAngle = targetLiftAngle;
                 targetTonearmAngle = -30.0;
+                
+                if (largeVinyl !is null)
+                {
+                    largeVinyl.detach();
+                    largeVinyl = null;
+                }
                 vinyl = null;
             }
         }
         else
         {
             tonearmAngle += (targetTonearmAngle - tonearmAngle) * 0.08;
-            if (hasVinyl)
-                vinylAngle += 0.02; // Spin constantly for now
+            if (hasVinyl && window !is null && window.queue !is null && window.queue.playing)
+                vinylAngle += 0.02;
         }
 
         if (animatingDrop)
@@ -263,7 +260,111 @@ private:
 
     bool onDrop(Value val, double, double)
     {
-        // For now just accept strings (like pointer addresses to vinyls or IDs, but we don't have that yet)
+        string raw = val.getString();
+        if (raw is null)
+            return true;
+
+        import std.string : split;
+        string[] parts = raw.split("|");
+        if (parts is null)
+            return true;
+            
+        string type = parts[0];
+        
+        if (type == "artist" && parts.length >= 2)
+        {
+            string artistName = parts[1];
+            
+            if (window.catalog.artists !is null)
+            {
+                foreach (Artist a; window.catalog.artists)
+                {
+                    if (a.name == artistName)
+                    {
+                        if (window.catalogView !is null)
+                            window.catalogView.showAlbums(a);
+                        Vinyl v = new Vinyl(a);
+                        playVinyl(v);
+                        break;
+                    }
+                }
+            }
+        }
+        else if (type == "album" && parts.length >= 3)
+        {
+            string artistName = parts[1];
+            string albumName = parts[2];
+            
+            if (window.catalog.artists !is null)
+            {
+                Artist targetArtist = null;
+                foreach (Artist a; window.catalog.artists)
+                {
+                    if (a.name == artistName)
+                    {
+                        targetArtist = a;
+                        break;
+                    }
+                }
+                
+                if (targetArtist !is null)
+                {
+                    foreach (Album a; targetArtist.albums)
+                    {
+                        if (a.name == albumName)
+                        {
+                            if (window.catalogView !is null)
+                                window.catalogView.showTracks(targetArtist, a);
+                            Vinyl v = new Vinyl(a);
+                            playVinyl(v);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        else if (type == "track" && parts.length >= 4)
+        {
+            string artistName = parts[1];
+            string albumName = parts[2];
+            string trackPath = parts[3];
+            
+            if (window.catalog.artists !is null)
+            {
+                Artist targetArtist = null;
+                foreach (Artist a; window.catalog.artists)
+                {
+                    if (a.name == artistName)
+                    {
+                        targetArtist = a;
+                        break;
+                    }
+                }
+                
+                if (targetArtist !is null)
+                {
+                    foreach (Album a; targetArtist.albums)
+                    {
+                        if (a.name == albumName)
+                        {
+                            if (window.catalogView !is null)
+                                window.catalogView.showTracks(targetArtist, a);
+                            foreach (Track t; a.tracks)
+                            {
+                                if (t.audio.file.name == trackPath)
+                                {
+                                    Vinyl v = new Vinyl(t);
+                                    playVinyl(v);
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         return true;
     }
     
@@ -319,18 +420,87 @@ public:
     {
         liftingOff = true;
         targetLiftAngle = -60.0;
+        if (window !is null && window.queue !is null)
+            window.queue.stop();
         queueDraw();
     }
 
     void playVinyl(Vinyl v)
     {
+        if (largeVinyl !is null)
+        {
+            largeVinyl.detach();
+            largeVinyl = null;
+        }
+
         vinyl = v;
+        
+        int w = contentWidth;
+        int h = contentHeight;
+        double platterR = fmin(cast(double)w, cast(double)h) * 0.40;
+        int vSize = cast(int)(platterR * 1.84);
+        
+        if (vinyl.isArtist)
+            largeVinyl = new Vinyl(vinyl.artist, vSize);
+        else if (vinyl.isAlbum)
+            largeVinyl = new Vinyl(vinyl.album, vSize);
+        else if (vinyl.isTrack)
+            largeVinyl = new Vinyl(vinyl.track, vSize);
+            
         liftingOff = false;
         hasVinyl = true;
         vinylScale = 0.3;
         targetVinylScale = 1.0;
         animatingDrop = true;
         targetTonearmAngle = 5.0;
+        
+        if (window !is null && window.queue !is null)
+        {
+            string[] trackPaths;
+            if (vinyl.isArtist)
+            {
+                foreach (Album a; vinyl.artist.albums)
+                    foreach (Track t; a.tracks)
+                        trackPaths ~= t.audio.file.name;
+            }
+            else if (vinyl.isAlbum)
+            {
+                foreach (Track t; vinyl.album.tracks)
+                    trackPaths ~= t.audio.file.name;
+            }
+            else if (vinyl.isTrack)
+            {
+                foreach (Track t; vinyl.track.album.tracks)
+                    trackPaths ~= t.audio.file.name;
+            }
+            
+            if (trackPaths !is null)
+            {
+                int startIdx = 0;
+                if (vinyl.isTrack)
+                {
+                    foreach (size_t i, string p; trackPaths)
+                    {
+                        if (p == vinyl.track.audio.file.name)
+                        {
+                            startIdx = cast(int)i;
+                            break;
+                        }
+                    }
+                }
+                
+                string artistName = null;
+                if (vinyl.isArtist)
+                    artistName = vinyl.artist.name;
+                else if (vinyl.isAlbum && vinyl.album.artists !is null)
+                    artistName = vinyl.album.artists[0].name;
+                else if (vinyl.isTrack && vinyl.track.album.artists !is null)
+                    artistName = vinyl.track.album.artists[0].name;
+                    
+                window.queue.playQueue(trackPaths, artistName, startIdx);
+            }
+        }
+        
         queueDraw();
     }
 }

@@ -42,11 +42,11 @@ struct Catalog
 
                     // Determine album name
                     string[] albumTags = track.audio["ALBUM"];
-                    string albumName = albumTags.length > 0 ? albumTags[0] : baseName(dirName(entry.name));
+                    string albumName = albumTags !is null ? albumTags[0] : baseName(dirName(entry.name));
 
                     // Get or create album
                     Album album;
-                    if (auto p = albumName in albumMap)
+                    if (Album* p = albumName in albumMap)
                         album = *p;
                     else
                     {
@@ -60,10 +60,10 @@ struct Catalog
 
                     // Determine artist name(s)
                     string[] artistTags = track.audio["ARTIST"];
-                    if (artistTags is null || artistTags.length == 0)
+                    if (artistTags is null)
                         artistTags = track.audio["ALBUMARTIST"];
                     
-                    if (artistTags !is null && artistTags.length > 0)
+                    if (artistTags !is null)
                     {
                         foreach (tagStr; artistTags)
                         {
@@ -72,10 +72,11 @@ struct Catalog
                             foreach (artistNameRaw; splitArtists)
                             {
                                 string artistName = artistNameRaw.strip();
-                                if (artistName.length == 0) continue;
+                                if (artistName.length == 0)
+                                    continue;
 
                                 Artist artist;
-                                if (auto p = artistName in artistMap)
+                                if (Artist* p = artistName in artistMap)
                                     artist = *p;
                                 else
                                 {

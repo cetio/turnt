@@ -170,6 +170,7 @@ private:
         cr.restore();
     }
 
+public:
     void onDraw(DrawingArea, Context cr, int w, int h)
     {
         double maxR = fmin(cast(double)(w - 2), cast(double)(h - 2)) * 0.5;
@@ -193,7 +194,6 @@ private:
         }
     }
 
-public:
     Variant data;
     string name;
     bool outlined;

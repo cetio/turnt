@@ -101,6 +101,15 @@ public:
                     showAlbums(vv.artist);
             })(v));
             card.overlay.addController(click);
+            
+            import gtk.drag_source : DragSource;
+            import gdk.content_provider : ContentProvider;
+            DragSource drag = new DragSource();
+            drag.connectPrepare(((Vinyl vv) => delegate ContentProvider(double x, double y) {
+                return ContentProvider.newForValue(vv.name);
+            })(v));
+            card.overlay.addController(drag);
+            
             contentBox.append(card);
         };
 
@@ -114,14 +123,6 @@ public:
         stickyAlbum = "";
         clearBox(contentBox);
 
-        if (artist.albums == null)
-        {
-            Artist fresh = Artist.fromDirectory(artist.dir);
-            artist.albums = fresh.albums;
-            foreach (album; artist.albums)
-                album.artists ~= artist;
-        }
-
         Vinyl artistVinyl = new Vinyl(artist);
         string aDetail = artist.albums.length.to!string~" album"~(artist.albums.length != 1 ? "s" : "");
         CardWidget sticky = new CardWidget(artistVinyl, artist.name.toUpper(), aDetail, artist.getPlayCount());
@@ -134,9 +135,15 @@ public:
         lazyMakeCard = (int idx) {
             Album album = albums[idx];
             Vinyl vinyl = new Vinyl(album);
-            int trackCount = cast(int)album.tracks.length;
-            string detail = trackCount.to!string~" track"~(trackCount != 1 ? "s" : "");
-            CardWidget card = new CardWidget(vinyl, album.name.toUpper(), detail, album.getPlayCount());
+            
+            string artistsStr = "";
+            foreach (i, a; album.artists)
+            {
+                if (i > 0) artistsStr ~= ", ";
+                artistsStr ~= a.name;
+            }
+            
+            CardWidget card = new CardWidget(vinyl, album.name.toUpper(), artistsStr.toUpper(), album.getPlayCount());
 
             GestureClick click = new GestureClick();
             click.connectReleased(((Album a, Artist ar) => delegate(int n, double x, double y) {
@@ -144,6 +151,15 @@ public:
                     showTracks(ar, a);
             })(album, artist));
             card.overlay.addController(click);
+
+            import gtk.drag_source : DragSource;
+            import gdk.content_provider : ContentProvider;
+            DragSource drag = new DragSource();
+            drag.connectPrepare(((Vinyl vv) => delegate ContentProvider(double x, double y) {
+                return ContentProvider.newForValue(vv.name);
+            })(vinyl));
+            card.overlay.addController(drag);
+
             contentBox.append(card);
         };
 
@@ -163,9 +179,15 @@ public:
         contentBox.append(artistCard);
 
         Vinyl albumVinyl = new Vinyl(album);
-        int trackCount = cast(int)album.tracks.length;
-        string albDetail = trackCount.to!string~" track"~(trackCount != 1 ? "s" : "");
-        CardWidget albumCard = new CardWidget(albumVinyl, album.name.toUpper(), albDetail, album.getPlayCount());
+        string artistsStr = "";
+        foreach (i, a; album.artists)
+        {
+            if (i > 0) artistsStr ~= ", ";
+            artistsStr ~= a.name;
+        }
+        
+        CardWidget albumCard = new CardWidget(
+            albumVinyl, album.name.toUpper(), artistsStr.toUpper(), album.getPlayCount());
         makeStickyCard(albumCard, delegate void() { showAlbums(artist); });
         contentBox.append(albumCard);
 

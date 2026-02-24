@@ -47,11 +47,10 @@ public:
         Vinyl[] vinyls;
         if (exists(musicDir) && isDir(musicDir))
         {
-            foreach (entry; dirEntries(musicDir, SpanMode.shallow))
+            import mutagen.catalog : Catalog;
+            Catalog catalog = Catalog.build([musicDir]);
+            foreach (artist; catalog.artists)
             {
-                if (!entry.isDir)
-                    continue;
-                Artist artist = Artist.fromDirectory(entry.name);
                 if (artist.albums.length > 0)
                     vinyls ~= new Vinyl(artist);
             }

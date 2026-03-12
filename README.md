@@ -46,10 +46,6 @@ void main()
 - `mutagen.image` - Image handling and type detection
 - `mutagen.format` - Format-specific parsers (FLAC, MP3, MP4)
 
-## Dependencies
-
-Mutagen has no external dependencies - it's pure D.
-
 ## License
 
 Mutagen is licensed under the [AGPL-3.0 license](LICENSE.txt).
